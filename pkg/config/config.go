@@ -45,6 +45,7 @@ type Web3Storage struct {
 type Pinata struct {
 	Apikey   string
 	Endpoint string
+	Gateways []string
 	PinDays  uint
 }
 

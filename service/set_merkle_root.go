@@ -60,7 +60,9 @@ func (s *Service) setMerkleRoot() error {
 
 		fileBytes, err := s.dds.DownloadFile(preCid, utils.NodeRewardsFileNameAtEpoch(s.lsdTokenAddress.String(), s.chainID, dealtEpochOnchain))
 		if err != nil {
-			if strings.Contains(err.Error(), "404") {
+			// 403: a restricted gateway that does not hold this cid. Retry the
+			// legacy file name as for 404 rather than aborting the round.
+			if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "403") {
 				// try old
 				if fileBytes, err = s.dds.DownloadFile(preCid, utils.NodeRewardsFileNameAtEpochOld(s.lsdTokenAddress.String(), dealtEpochOnchain)); err != nil {
 					return err
