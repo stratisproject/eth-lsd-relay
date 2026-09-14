@@ -13,7 +13,7 @@ import (
 func TestUploadAndDownload(t *testing.T) {
 	pinataApikey := os.Getenv("PINATA_APIKEY")
 	pinataEndpoint := os.Getenv("PINATA_ENDPOINT")
-	client, err := pinata.NewClient(pinataEndpoint, pinataApikey)
+	client, err := pinata.NewClient(pinataEndpoint, nil, pinataApikey)
 	assert.Nil(t, err)
 
 	fileName := "hello-world.txt"
@@ -33,7 +33,7 @@ func TestUploadAndDownload(t *testing.T) {
 func TestUnpinFilesCreatedBefore(t *testing.T) {
 	pinataApikey := os.Getenv("PINATA_APIKEY")
 	pinataEndpoint := os.Getenv("PINATA_ENDPOINT")
-	client, err := pinata.NewClient(pinataEndpoint, pinataApikey)
+	client, err := pinata.NewClient(pinataEndpoint, nil, pinataApikey)
 	assert.Nil(t, err)
 
 	count, err := client.UnpinFilesCreatedBefore(time.Now().AddDate(0, -180, 0))
