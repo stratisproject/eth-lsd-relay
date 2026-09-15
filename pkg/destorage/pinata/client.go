@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/stafiprotocol/eth-lsd-relay/pkg/destorage"
@@ -23,21 +24,51 @@ var _ destorage.DeStorage = &Client{}
 type Client struct {
 	endpoint string
 	apikey   string
+	gateways []string
 }
 
 const (
-	defaultEndpoint  = "https://api.pinata.cloud"
-	fileUrlFormatter = "https://%s.ipfs.dweb.link/%s"
+	defaultEndpoint = "https://api.pinata.cloud"
 )
 
-func NewClient(endpoint, apikey string) (*Client, error) {
+// defaultGateways are the IPFS download gateways, tried in order until one
+// serves the file. Each entry is a format string: first %s = cid, second %s =
+// file name.
+//
+// The previous hard-coded gateway, https://%s.ipfs.dweb.link/%s, has been rate
+// limited since 2026-09-01 and retires on 2026-09-21 (Sunset header), which
+// would stop every relay from voting. Override with [pinata] gateways in
+// config.toml.
+var defaultGateways = []string{
+	// Stratis' own Pinata gateway first: it already holds every round's file.
+	// The public gateways are fallbacks and need no account or key.
+	"https://ipfs.stratisplatform.com/ipfs/%s/%s",
+	"https://gateway.pinata.cloud/ipfs/%s/%s",
+	"https://ipfs.filebase.io/ipfs/%s/%s",
+}
+
+// downloadClient bounds each gateway attempt. http.DefaultClient has no
+// timeout, so a gateway that accepts the connection and never responds would
+// block the round indefinitely with no log line.
+var downloadClient = &http.Client{Timeout: 60 * time.Second}
+
+func NewClient(endpoint string, gateways []string, apikey string) (*Client, error) {
 	if endpoint == "" {
 		endpoint = defaultEndpoint
 	}
+	if len(gateways) == 0 {
+		gateways = defaultGateways
+	}
+	for _, gateway := range gateways {
+		if strings.Count(gateway, "%s") != 2 {
+			return nil, fmt.Errorf("invalid pinata gateway %q: want exactly two %%s verbs (cid, file name)", gateway)
+		}
+	}
 
 	c := &Client{
-		endpoint,
-		apikey,
+		endpoint: endpoint,
+		apikey:   apikey,
+		gateways: gateways,
 	}
 
 	return c, nil
@@ -63,25 +94,39 @@ func (c *Client) StartUnpinFiles(pinDur time.Duration) {
 }
 
 func (c *Client) DownloadFile(cid, fileName string) (content []byte, err error) {
-	url := fmt.Sprintf(fileUrlFormatter, cid, fileName)
-	rsp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer rsp.Body.Close()
+	lastErr := fmt.Errorf("no pinata gateway configured")
 
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rsp status err %d", rsp.StatusCode)
+	for _, gateway := range c.gateways {
+		url := fmt.Sprintf(gateway, cid, fileName)
+		rsp, getErr := downloadClient.Get(url)
+		if getErr != nil {
+			lastErr = getErr
+			continue
+		}
+
+		bodyBytes, readErr := io.ReadAll(rsp.Body)
+		rsp.Body.Close()
+
+		if rsp.StatusCode != http.StatusOK {
+			// Keep the status in the error string: the caller matches on "404"
+			// (file name missing under a valid cid) and "403" (restricted
+			// gateway without this content) to retry the legacy file name.
+			lastErr = fmt.Errorf("rsp status err %d", rsp.StatusCode)
+			continue
+		}
+		if readErr != nil {
+			lastErr = readErr
+			continue
+		}
+		if len(bodyBytes) == 0 {
+			lastErr = fmt.Errorf("bodyBytes zero err")
+			continue
+		}
+
+		return bodyBytes, nil
 	}
 
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if len(bodyBytes) == 0 {
-		return nil, fmt.Errorf("bodyBytes zero err")
-	}
-	return bodyBytes, nil
+	return nil, lastErr
 }
 
 func (c *Client) UploadFile(content []byte, path string) (cid string, err error) {

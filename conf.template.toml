@@ -9,6 +9,9 @@ runForEntrustedLsdNetwork = false
 
 [pinata]
 apikey     = ""
+# IPFS download gateways, tried in order. %s = cid, %s = file name.
+# Leave unset for the built-in defaults (ipfs.stratisplatform.com, then public gateways).
+gateways = ["https://ipfs.stratisplatform.com/ipfs/%s/%s", "https://gateway.pinata.cloud/ipfs/%s/%s", "https://ipfs.filebase.io/ipfs/%s/%s"]
 pinDays = 180
 
 [contracts]
