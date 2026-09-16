@@ -225,6 +225,7 @@ func NewService(
 
 	dds, err := pinata.NewClient(
 		cfg.Pinata.Endpoint,
+		cfg.Pinata.Gateways,
 		cfg.Pinata.Apikey,
 	)
 	if err != nil {
